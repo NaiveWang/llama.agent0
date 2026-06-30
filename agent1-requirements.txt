@@ -1,0 +1,74 @@
+---
+
+### **Ground Rules for Agent Evolution**
+
+1. **Feature Inheritance:** The next-generation agent (Agent[N+1]) must incorporate all features of Agent0.
+2. **Issue Resolution:** Agent[N+1] should aim to resolve or mitigate any existing issues present in Agent[N].
+3. **Testing Capability:** The agent must be capable of developing comprehensive tests for the next-generation agent based on the specifications (a capability Agent0 currently lacks).
+4. **Self-Testing & Feedback:** The agent should be able to execute these tests and receive feedback on its own performance.
+5. **Multi-File Project Structure:** If the next-generation agent consists of multiple source files, it should be organized in a dedicated `agentN` folder, which will serve as the base directory.
+6. **Test-Gated Evolution:** The evolution to the next-generation agent should only occur after it has successfully passed all defined tests.
+7. **Reference vs. Usage:** During the development of the next-generation agent, the source code of previous agents can be referenced for guidance but does not strictly need to be reused.
+8. **Phased Development:** You will have to separate this dev to multiple small phases before starting bold development.
+
+---
+
+### **Role Message Configuration**
+
+- **Note on Agent[N]ext:** Note the agent[N]ext in the role message of agent[N]ext. (Ensure the role message explicitly defines the current agent's identity and its potential evolution to the next agent version).
+
+---
+
+### **Agent0 Recap**
+
+**1. Core Role & Purpose:**
+Agent0 functions as a coding agent designed to build llama server-based Python coding agents. Its primary tasks involve modifying code, explaining code, and suggesting commands.
+
+**2. Memory Management System (`MemoryManager` class):**
+- **JSON-Based Storage:** Maintains conversation history and file/command outputs in a `memory.json` file, categorized into `user`, `assistant`, `system`, and `file` lists.
+- **System Context Enforcement:** Automatically ensures the role definition is the first system message and injects the current agent's source code as a "Current Agent Source Code" title message.
+- **Memory Trimming:** Implements a `trim_memory(max_length=32)` function to prevent context overflow by retaining the most recent user/assistant messages while preserving system and file messages.
+
+**3. Interactive Chat Commands (`ChatAgent` class):**
+The agent supports an interactive terminal interface with the following slash commands:
+- `/help`: Displays available commands.
+- `/save`: Saves the current memory to the JSON file.
+- `/load`: Loads memory from the JSON file.
+- `/read <filename>`: Reads a file's content and stores it in the `file` memory (with security checks to prevent directory traversal).
+- `/exec <command>`: Executes a shell command, captures stdout/stderr/exit code, and stores the output in the `file` memory (with a 60-second timeout).
+- `/temp <float>`: Sets the LLM's temperature parameter (valid range: 0.0 to 2.0). The current temperature is displayed in the user prompt (e.g., `[U|0.3]`).
+
+**4. LLM Integration & Auto-Execution Loop:**
+- **API Connection:** Connects to an LLM API (default: `http://localhost:8080/v1/chat/completions`) using the OpenAI-compatible chat completions format.
+- **Auto-Execution Loop:** When the LLM provides a response containing executable commands, the agent executes them, captures the output, and feeds that output back to the LLM in the next iteration (up to a maximum of 10 iterations).
+- **Message Building:** Merges all `system` and `file` messages into a single system message, and interleaves `user` and `assistant` messages for the API request.
+
+**5. Command Extraction & Validation:**
+- **XML Guard Rails:** Looks for commands wrapped in specific XML markers: `<execute_commands> ... ```bash ... ``` </execute_commands>`, `<execute>...</execute>`, or `<execute_command>...</execute_command>`.
+- **Language Filtering:** Extracts commands only from code blocks explicitly tagged with shell-related languages (`bash`, `sh`, `shell`, `cmd`, `powershell`, `shell-script`, `zsh`).
+- **Command Validation (`_is_valid_shell_command`):** Validates extracted commands to ensure they are actual shell commands and not placeholder text or natural language, using a whitelist of common valid command starts and paths.
+
+**6. Security & Safety Features:**
+- **Directory Traversal Protection:** The `/read` command ensures the file being read is strictly within the current working directory.
+- **Command Timeout:** Both the `/exec` command and the auto-execution loop enforce a 60-second timeout to prevent hanging or infinite-looping shell commands.
+- **No Re-execution Instruction:** After successfully executing commands (Exit Code: 0, no Stderr errors), the agent appends an instruction to the memory telling the LLM not to re-execute the same commands, ensuring it proceeds to the next step or provides the final answer.
+
+**7. Existing Issues:**
+- Sometimes the server may return an empty response, which might be caused by conversations that are too long. Retyping the request sometimes works around this issue.
+
+---
+
+### **Agent1 Features**
+
+**Core Features:**
+- **Self-Reading & Multi-File Support:** Agent1 does not need to attach its own source code in the system prompt, as it should be capable of reading its own files. Agent1 is designed to support multi-file project structures.
+- **Subagent Generation:** Agent1 should be capable of generating a subagent (initially one subagent).
+- **Conversation Compaction & Forgetting:** Agent1 should be able to automatically compact conversations or "forget" certain parts upon user demand. Only meaningful conversations should be retained, alongside the compaction feature.
+- **Role Mutation & Specialization:** Agent1 should be able to modify its role to fork and mutate itself into a specialized agent (e.g., a C++ LeetCode solver) if requested by the user.
+
+**User Interface:**
+- **Improved Prompt Editing:** The user should be able to move the cursor within the prompt and insert text in the middle, avoiding issues like generating escape characters (e.g., `^[[C`).
+- **Token & Rate Display:** The number of tokens used and the rate should be displayed per request return, highlighted in red color.
+- **`/usage` Command (Global Statistics):** Add a `/usage` feature that can print global statistics, such as how much tokens have been used, request counts, and other relevant usage metrics, to the UI section.
+
+---
