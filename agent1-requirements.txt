@@ -22,11 +22,19 @@
 ### **Current Agent Features (Agent0 / Base Agent)**
 
 **1. Core Role & Purpose:**
-The agent functions as a coding agent designed to build llama server-based Python coding agents. Its primary tasks involve modifying code, explaining code, and suggesting commands.
+The agent functions as a coding agent designed to build llama server-based Python coding agents. Its primary tasks involve modifying code, explaining code, and suggesting commands, and everything related to it.
+
+The role message includes the following important instructions:
+- If the command exit code is 0 and there are no errors in Stderr, consider the command successful, proceed to the next step or provide the final answer.
+- If there are no commands to execute, the "commands" array MUST be empty.
+- You need to simply acknowledge the LAST command executed in a sequence, even if you did not expect it returns to you anything.
+- Agent0 source is in agent0.py, single file.
 
 **2. Memory Management System (`MemoryManager` class):**
-- **JSON-Based Storage:** Maintains conversation history and file/command outputs in a `memory.json` file, categorized into `user`, `assistant`, `system`, and `file` lists.
-- **System Context Enforcement:** Automatically ensures the role definition is the first system message and injects the current agent's source code reference as a title message (e.g., "=== agent0 source is in agent0.py, single file ===").
+- **JSON-Based Storage:** Maintains conversation history in a `memory.json` file as a JSON array of messages with `role` and `content` fields (e.g., `{"role": "system/user/assistant", "content": "..."}`).
+- **Format Conversion:** Automatically converts old format memory (dict with `system`, `user`, `assistant`, `file` keys) to the new format (list of messages).
+- **System Context Enforcement:** Automatically ensures the role definition (system message) is the first message in the memory via the `init_context()` method.
+- **Execution Output Discard:** Provides a `discard_execution_outputs()` method to remove execution output messages from memory (messages with role 'user' and content starting with '--- Execution Output for LLM') when the final response is reached (no commands to execute).
 
 **3. Interactive Chat Commands (`ChatAgent` class):**
 The agent supports an interactive terminal interface with the following slash commands:
@@ -34,8 +42,7 @@ The agent supports an interactive terminal interface with the following slash co
 - `/save`: Saves the current memory to the JSON file.
 - `/load`: Loads memory from the JSON file.
 - `/temp <float>`: Sets the LLM's temperature parameter (valid range: 0.0 to 2.0). The current temperature is displayed in the user prompt (e.g., `[U|0.3]`).
-- `/pm`: Prints the current memory dictionary.
-- `/pr`: Toggles print request (prints messages built for API request).
+- `/dp`: Toggles debug prints (prints the messages built for API request if debug prints are enabled).
 
 *(Note: `/read <filename>` and `/exec <command>` commands have been removed. Command execution is now handled exclusively via the auto-execution loop based on JSON grammar response.)*
 
@@ -52,14 +59,14 @@ The agent supports an interactive terminal interface with the following slash co
   }
   ```
 - **Auto-Execution Loop:** When the LLM provides a response containing executable commands in the `commands` array, the agent executes them, captures the output (stdout/stderr/exit code), and feeds that output back to the LLM in the next iteration (up to a maximum of 1000 iterations).
-- **Message Building:** Merges all `system` and `file` messages into a single system message, and interleaves `user` and `assistant` messages for the API request.
+- **Message Building:** Uses the `memory_manager.memory_json` directly (a JSON array of messages) for the API request. Execution output messages are added as 'user' messages starting with '--- Execution Output for LLM (Iteration X) ---', and are discarded via `discard_execution_outputs()` when the final response (no commands) is reached.
 
 **5. Command Execution & Validation:**
 - **Command Extraction:** Commands are extracted directly from the `commands` array in the JSON grammar response. XML guard rails and ```bash ``` language filtering have been removed in favor of the structured JSON `commands` array.
-- **Command Timeout:** The auto-execution loop enforces a 60-second timeout to prevent hanging or infinite-looping shell commands.
+- **Command Timeout:** The auto-execution loop enforces a 900-second timeout in `subprocess.run()` to prevent hanging or infinite-looping shell commands. (Note: The error message for timeout incorrectly states "timed out after 60 seconds", but the actual `timeout` parameter is set to 900).
 
 **6. Security & Safety Features:**
-- **Command Timeout:** Enforces a 60-second timeout to prevent hanging or infinite-looping shell commands.
+- **Command Timeout:** Enforces a 900-second timeout in `subprocess.run()` to prevent hanging or infinite-looping shell commands.
 - **No Re-execution Instruction:** After successfully executing commands (Exit Code: 0, no Stderr errors), the role message instructs the LLM to proceed to the next step or provide the final answer, ensuring it does not re-execute the same commands.
 
 **7. Existing Issues & Pending Improvements:**

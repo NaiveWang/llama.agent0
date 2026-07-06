@@ -14,55 +14,109 @@ RESET_COLOR = "\033[0m"
 class MemoryManager:
     def __init__(self, memory_file: str = "memory.json"):
         self.memory_file = memory_file
-        self.memory: Dict[str, List[str]] = {
-            "user": [],
-            "assistant": [],
-            "system": [],
-            "file": []
-        }
+        self.memory_json: str = "[]"
         self.load_memory()
         self.role_message = """You are agent0, a coding agent focused on building llama server based python coding agent, your tasks are modifying, explaining code, and suggest commands, and everything related to it.
 IMPORTANT INSTRUCTION FOR COMMAND SUCCESS:
 If the command exit code is 0 and there are no errors in Stderr, consider the command successful, proceed with the next step or provide the final answer.
 If there are no commands to execute, the "commands" array MUST be empty.
-You need to simply acknowledge the LAST command executed in a sequence, even if you did not expect it returns to you anything."""
+You need to simply acknowledge the LAST command executed in a sequence, even if you did not expect it returns to you anything.
+Agent0 source is in agent0.py, single file."""
 
     def load_memory(self) -> None:
         """Load memory from a JSON file if it exists."""
         try:
             with open(self.memory_file, 'r') as f:
-                self.memory = json.load(f)
+                data = json.load(f)
+            # Convert old format to new format if necessary
+            if isinstance(data, dict):
+                if "system" in data and "user" in data and "assistant" in data:
+                    memory_json_parts = []
+                    # Add system messages
+                    for msg in data.get("system", []):
+                        msg_content_json = json.dumps(msg)
+                        msg_json = f'{{"role": "system", "content": {msg_content_json}}}'
+                        memory_json_parts.append(msg_json)
+                    # Interleave user and assistant messages
+                    user_messages = data.get("user", [])
+                    assistant_messages = data.get("assistant", [])
+                    for i in range(max(len(user_messages), len(assistant_messages))):
+                        if i < len(user_messages):
+                            msg_content_json = json.dumps(user_messages[i])
+                            msg_json = f'{{"role": "user", "content": {msg_content_json}}}'
+                            memory_json_parts.append(msg_json)
+                        if i < len(assistant_messages):
+                            msg_content_json = json.dumps(assistant_messages[i])
+                            msg_json = f'{{"role": "assistant", "content": {msg_content_json}}}'
+                            memory_json_parts.append(msg_json)
+                    # Add file messages
+                    for file_msg in data.get("file", []):
+                        msg_content_json = json.dumps(f"--- Execution Output for LLM ---\n{file_msg}")
+                        msg_json = f'{{"role": "user", "content": {msg_content_json}}}'
+                        memory_json_parts.append(msg_json)
+                    
+                    self.memory_json = "[" + ", ".join(memory_json_parts) + "]"
+                else:
+                    self.memory_json = "[]"
+            elif isinstance(data, list):
+                self.memory_json = json.dumps(data)
+            else:
+                self.memory_json = "[]"
+                
             print(f"{SYSTEM_COLOR}[S] Memory loaded from {self.memory_file}{RESET_COLOR}")
         except FileNotFoundError:
             print(f"{SYSTEM_COLOR}[S] No existing memory found. Starting with empty memory.{RESET_COLOR}")
-            self.memory = {
-                "user": [],
-                "assistant": [],
-                "system": [],
-                "file": []
-            }
+            self.memory_json = "[]"
         except json.JSONDecodeError:
             print(f"{SYSTEM_COLOR}[S] Error decoding memory file. Starting with empty memory.{RESET_COLOR}")
-            self.memory = {
-                "user": [],
-                "assistant": [],
-                "system": [],
-                "file": []
-            }
+            self.memory_json = "[]"
 
     def save_memory(self) -> None:
         """Save current memory to a JSON file."""
         try:
             with open(self.memory_file, 'w') as f:
-                json.dump(self.memory, f)
+                f.write(self.memory_json)
             print(f"{SYSTEM_COLOR}[S] Memory saved to {self.memory_file}{RESET_COLOR}")
         except Exception as e:
             print(f"{SYSTEM_COLOR}[S] Error saving memory: {e}{RESET_COLOR}")
 
+    def add_message(self, role: str, content: str) -> None:
+        """Add a message to the memory."""
+        # Construct JSON string directly to avoid internal dict
+        content_json = json.dumps(content)
+        new_message_json = f'{{"role": "{role}", "content": {content_json}}}'
+        if self.memory_json == "[]":
+            self.memory_json = f"[{new_message_json}]"
+        else:
+            self.memory_json = self.memory_json[:-1] + f', {new_message_json}]'
+
+    def discard_execution_outputs(self) -> None:
+        """Remove execution output messages from memory."""
+        try:
+            messages_list = json.loads(self.memory_json)
+        except json.JSONDecodeError:
+            messages_list = []
+            
+        # Filter out execution output messages
+        # Execution output messages have role 'user' and content starting with '--- Execution Output for LLM'
+        filtered_messages = [
+            msg for msg in messages_list 
+            if not (msg.get("role") == "user" and isinstance(msg.get("content"), str) and msg.get("content").startswith("--- Execution Output for LLM"))
+        ]
+        
+        # Update memory_json
+        self.memory_json = json.dumps(filtered_messages)
+
     def init_context(self) -> None:
-        self.memory["system"].insert(0, self.role_message)
-        source_code_reflection_path = "=== agent0 source is in agent0.py, single file ===\n"
-        self.memory["system"].append(source_code_reflection_path)
+        # Insert system message at the beginning
+        role_message_json = json.dumps(self.role_message)
+        system_message_json = f'{{"role": "system", "content": {role_message_json}}}'
+        if self.memory_json == "[]":
+            self.memory_json = f"[{system_message_json}]"
+        else:
+            # self.memory_json is like '[{...}, {...}]'
+            # We want '[{system_message_json}, {...}, {...}]'
+            self.memory_json = f"[{system_message_json}, {self.memory_json[1:]}]"
 
 class ChatAgent:
     def __init__(self, memory_manager: MemoryManager, api_url: str, headers: Dict[str, str]):
@@ -71,9 +125,8 @@ class ChatAgent:
         self.headers = headers
         self.temperature = 0.2  # Default temperature
         self.token_total_accumulator = 0  # Accumulator for total tokens
-        # Ensure system context (role message + source code title message) is loaded
         self.memory_manager.init_context()
-        self.pm = False
+        self.debug_prints = False
 
     def run(self) -> None:
         """Start the chat interface."""
@@ -108,11 +161,9 @@ class ChatAgent:
             self.memory_manager.load_memory()
         elif command.startswith('/temp'):
             self._handle_temp_command(command)
-        elif command.startswith('/pm'):
-            print(self.memory_manager.memory)
-        elif command.startswith('/pr'):
-            self.pm = not self.pm
-            print("Print Request =", self.pm)
+        elif command.startswith('/dp'):
+            self.debug_prints = not self.debug_prints
+            print("Debug Prints =", self.debug_prints)
         else:
             print(f"{SYSTEM_COLOR}[S] Unknown command: {command}{RESET_COLOR}")
 
@@ -163,14 +214,14 @@ class ChatAgent:
         for idx, cmd in enumerate(commands):
             try:
                 # Execute the command
-                print(f"{SYSTEM_COLOR}[S] Command: {cmd}{RESET_COLOR}")
+                print(f"{SYSTEM_COLOR}[S] Execute: {cmd}{RESET_COLOR}")
                 result = subprocess.run(
                     cmd,
                     shell=True,
                     capture_output=True,
                     text=True,
                     cwd=os.getcwd(),
-                    timeout=60  # Added timeout to prevent hanging on long-running or interactive commands
+                    timeout=900  # Added timeout to prevent hanging on long-running or interactive commands
                 )
                 output = result.stdout
                 error = result.stderr
@@ -193,48 +244,24 @@ class ChatAgent:
 
     def _process_agent_request(self, user_input: str) -> None:
         """Process user input as an agent request with auto-execution loop."""
-        self.memory_manager.memory["user"].append(user_input)
+        # Add user message to memory
+        self.memory_manager.add_message("user", user_input)
 
         max_iterations = 1000
         iteration = 0
 
         while iteration < max_iterations:
             iteration += 1
-            messages = self._build_messages()
+            messages_json = self.memory_manager.memory_json
 
             try:
+                # Build the full payload JSON string to avoid internal dict for messages
+                payload_json = '{"messages": ' + messages_json + ', "temperature": ' + str(self.temperature) + ', "max_tokens": 32768, "stream": false, "response_format": {"type": "json_schema", "json_schema": {"name": "agent_response", "strict": true, "schema": {"type": "object", "properties": {"message": {"type": "string"}, "commands": {"type": "array", "items": {"type": "string"}}}, "required": ["message", "commands"], "additionalProperties": false}}}}'
+                
                 response = requests.post(
                     self.api_url,
                     headers=self.headers,
-                    json={
-                        "messages": messages,
-                        "temperature": self.temperature,
-                        "max_tokens": 32768,
-                        "stream": False,
-                        "response_format": {
-                            "type": "json_schema",
-                            "json_schema": {
-                                "name": "agent_response",
-                                "strict": True,
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "message": {
-                                            "type": "string"
-                                        },
-                                        "commands": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    },
-                                    "required": ["message", "commands"],
-                                    "additionalProperties": False
-                                }
-                            }
-                        }
-                    }
+                    data=payload_json
                 )
                 response.raise_for_status()
                 response_json = response.json()
@@ -263,15 +290,19 @@ class ChatAgent:
                     # Execute commands
                     exec_output = self._execute_commands(commands)
 
-                    # Add execution output to memory as a file/message to be sent to LLM
-                    self.memory_manager.memory['file'].append(f"--- Execution Output for LLM (Iteration {iteration}) ---\n{exec_output}")
+                    # Add execution output to memory as a message to be sent to LLM
+                    self.memory_manager.add_message("user", f"--- Execution Output for LLM (Iteration {iteration}) ---\n{exec_output}")
 
                     # Continue loop to send to LLM again
                     print(f"{SYSTEM_COLOR}[S] Executed {len(commands)} command(s). Sending output to LLM...{RESET_COLOR}")
                     continue
                 else:
                     # No commands to execute, this is the final response
-                    self.memory_manager.memory["assistant"].append(assistant_response)
+                    # Auto discard: remove execution output messages from memory
+                    self.memory_manager.discard_execution_outputs()
+                    
+                    # Add final assistant response to memory
+                    self.memory_manager.add_message("assistant", assistant_response)
                     break
 
             except requests.exceptions.RequestException as e:
@@ -285,37 +316,29 @@ class ChatAgent:
                 print(f"{SYSTEM_COLOR}[S] An error occurred: {e}{RESET_COLOR}")
                 break
 
-    def _build_messages(self) -> List[Dict[str, str]]:
-        """Construct the message list for the API request."""
-        messages = []
-
-        # Merge all system and file messages into a single system message to avoid consecutive system messages
-        system_contents = []
-        for msg in self.memory_manager.memory["system"]:
-            system_contents.append(msg)
-
-        if system_contents:
-            # Merge system contents into a single system message
-            merged_system_content = "\n\n---\n\n".join(system_contents)
-            messages.append({"role": "system", "content": merged_system_content})
-
-        # Interleave user and assistant messages
-        user_messages = self.memory_manager.memory["user"]
-        assistant_messages = self.memory_manager.memory["assistant"]
-
-        for i in range(max(len(user_messages), len(assistant_messages))):
-            if i < len(user_messages):
-                messages.append({"role": "user", "content": user_messages[i]})
-            if i < len(assistant_messages):
-                messages.append({"role": "assistant", "content": assistant_messages[i]})
-        for file_msg in self.memory_manager.memory["file"]:
-            messages.append({"role": "user", "content": f"--- Execution Output for LLM ---\n{file_msg}"})
-        self.memory_manager.memory["file"] = []
-        if (self.pm): print(messages)
-        return messages
+    def _build_messages(self) -> str:
+        """Construct the message list for the API request as a JSON string, filtering out command/tool outputs."""
+        # Parse the JSON string to a list of dicts temporarily for filtering
+        try:
+            messages_list = json.loads(self.memory_manager.memory_json)
+        except json.JSONDecodeError:
+            messages_list = []
+            
+        # Filter to keep only 'system', 'user', and 'assistant' roles
+        filtered_messages = [
+            msg for msg in messages_list 
+            if msg.get("role") in ["system", "user", "assistant"]
+        ]
+        
+        # Convert back to JSON string
+        filtered_json = json.dumps(filtered_messages)
+        
+        if self.debug_prints:
+            print(filtered_json)
+            
+        return filtered_json
 
 if __name__ == "__main__":
-    # Configuration
     API_URL = os.getenv("LLM_API_URL", "http://localhost:8080/v1/chat/completions")
     HEADERS = {"Content-Type": "application/json"}
 
