@@ -1,17 +1,39 @@
-# Agent0
+# Agent0: Foundational CLI Coding Agent
 
-**Agent0** is a coding agent focused on building llama server based python coding agents. 
+**Target Scope:** Basic coding tasks, simple scripts, single-file modifications.
 
-## Tasks
-- Modifying code
-- Explaining code
-- Suggesting commands
-- Everything related to llama server based python coding agents
+**Core Features:**
+- Single-file Python CLI script (`agent0.py`).
+- Linear `memory.json` chat history for context.
+- Command-generation loop with auto-execution via `subprocess.run()`.
+- JSON-grammar enforcement for command generation.
+- Basic terminal-based interaction.
 
-## Source
-The source code for Agent0 is contained in a single file: `agent0.py`.
+**Limitations:**
+- No direct file read/edit capabilities (relies on shell commands).
+- No long-context management (prone to token limits and "lost in the middle").
+- No multi-agent parallelism or milestone-based workflows.
 
-## Important Instructions for Command Success
-- If the command exit code is 0 and there are no errors in Stderr, consider the command successful, proceed with the next step or provide the final answer.
-- If there are no commands to execute, the "commands" array MUST be empty.
-- You need to simply acknowledge the LAST command executed in a sequence, even if you did not expect it returns to you anything.
+---
+
+## Agent0: LLM & Dependency Requirements
+
+### LLM Requirements
+- **GBNF (Grammar-Based Next Token Prediction) Support:** To ensure strict JSON-grammar enforcement for command generation, the LLM supports GBNF grammars (e.g., via `llama-cpp-python`) or native JSON mode (e.g., OpenAI's `response_format: { "type": "json_object" }`).
+- **Local or API LLM Support:** Compatible with local LLMs served via `llama-cpp-python`/Ollama, or cloud APIs (OpenAI, etc.) with JSON output capabilities.
+
+### Python Library Dependencies
+- **Core Dependencies:** `llama-cpp-python` (for local GBNF/grammar enforcement), `requests`, `jsonschema`, `pydantic`.
+- **Standard Library Modules:** `json`, `subprocess`, `os`, `typing`.
+
+---
+
+## Agent System Roadmap
+
+- **Agent0**: Foundational CLI Coding Agent (Basic tasks, simple scripts)
+- **Agent1**: Next-Gen Single-Agent for Small/Mid Projects & Long Context
+- **Agent2**: Multi-Agent Parallel Troubleshooting System for Mid/Large Projects with Web UI & HITL
+
+For detailed requirements:
+- [Agent1 Requirements](agent1-requirements.md)
+- [Agent2 Requirements Spec](agent2-requirements.md)

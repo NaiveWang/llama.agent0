@@ -15,7 +15,6 @@ class MemoryManager:
     def __init__(self, memory_file: str = "memory.json"):
         self.memory_file = memory_file
         self.memory_json: str = "[]"
-        self.load_memory()
         self.role_message = """You are agent0, a coding agent focused on building llama server based python coding agent, your tasks are modifying, explaining code, and suggest commands, and everything related to it.
 IMPORTANT INSTRUCTION FOR COMMAND SUCCESS:
 If the command exit code is 0 and there are no errors in Stderr, consider the command successful, proceed with the next step or provide the final answer.
@@ -28,37 +27,7 @@ Agent0 source is in agent0.py, single file."""
         try:
             with open(self.memory_file, 'r') as f:
                 data = json.load(f)
-            # Convert old format to new format if necessary
-            if isinstance(data, dict):
-                if "system" in data and "user" in data and "assistant" in data:
-                    memory_json_parts = []
-                    # Add system messages
-                    for msg in data.get("system", []):
-                        msg_content_json = json.dumps(msg)
-                        msg_json = f'{{"role": "system", "content": {msg_content_json}}}'
-                        memory_json_parts.append(msg_json)
-                    # Interleave user and assistant messages
-                    user_messages = data.get("user", [])
-                    assistant_messages = data.get("assistant", [])
-                    for i in range(max(len(user_messages), len(assistant_messages))):
-                        if i < len(user_messages):
-                            msg_content_json = json.dumps(user_messages[i])
-                            msg_json = f'{{"role": "user", "content": {msg_content_json}}}'
-                            memory_json_parts.append(msg_json)
-                        if i < len(assistant_messages):
-                            msg_content_json = json.dumps(assistant_messages[i])
-                            msg_json = f'{{"role": "assistant", "content": {msg_content_json}}}'
-                            memory_json_parts.append(msg_json)
-                    # Add file messages
-                    for file_msg in data.get("file", []):
-                        msg_content_json = json.dumps(f"--- Execution Output for LLM ---\n{file_msg}")
-                        msg_json = f'{{"role": "user", "content": {msg_content_json}}}'
-                        memory_json_parts.append(msg_json)
-                    
-                    self.memory_json = "[" + ", ".join(memory_json_parts) + "]"
-                else:
-                    self.memory_json = "[]"
-            elif isinstance(data, list):
+            if isinstance(data, list):
                 self.memory_json = json.dumps(data)
             else:
                 self.memory_json = "[]"
@@ -108,15 +77,12 @@ Agent0 source is in agent0.py, single file."""
         self.memory_json = json.dumps(filtered_messages)
 
     def init_context(self) -> None:
+        self.load_memory()
         # Insert system message at the beginning
         role_message_json = json.dumps(self.role_message)
         system_message_json = f'{{"role": "system", "content": {role_message_json}}}'
         if self.memory_json == "[]":
             self.memory_json = f"[{system_message_json}]"
-        else:
-            # self.memory_json is like '[{...}, {...}]'
-            # We want '[{system_message_json}, {...}, {...}]'
-            self.memory_json = f"[{system_message_json}, {self.memory_json[1:]}]"
 
 class ChatAgent:
     def __init__(self, memory_manager: MemoryManager, api_url: str, headers: Dict[str, str]):
@@ -126,7 +92,6 @@ class ChatAgent:
         self.temperature = 0.2  # Default temperature
         self.token_total_accumulator = 0  # Accumulator for total tokens
         self.memory_manager.init_context()
-        self.debug_prints = False
 
     def run(self) -> None:
         """Start the chat interface."""
@@ -161,9 +126,6 @@ class ChatAgent:
             self.memory_manager.load_memory()
         elif command.startswith('/temp'):
             self._handle_temp_command(command)
-        elif command.startswith('/dp'):
-            self.debug_prints = not self.debug_prints
-            print("Debug Prints =", self.debug_prints)
         else:
             print(f"{SYSTEM_COLOR}[S] Unknown command: {command}{RESET_COLOR}")
 
@@ -332,9 +294,6 @@ class ChatAgent:
         
         # Convert back to JSON string
         filtered_json = json.dumps(filtered_messages)
-        
-        if self.debug_prints:
-            print(filtered_json)
             
         return filtered_json
 
